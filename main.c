@@ -25,34 +25,39 @@
 const int backlog = 4;
 
 struct threadParams{
-    struct addrinfo *passAddr;
+    struct addrinfo passAddr;
     int socket;
 };
 
 void *controlSession(void *arg)
 {
+    
     printf("Entered control session \n");
     
-    struct threadParams *passThru;
+    struct threadParams *passThru = malloc(sizeof(*passThru));
     bzero(&passThru, sizeof(passThru));
     passThru= (struct threadParams *) arg;
-    struct addrinfo *result = passThru->passAddr;
-    int socket = passThru->socket;
+    struct addrinfo *result = &(passThru->passAddr);
+    int controlSocket = passThru->socket;
     
-    printf("socket is %i \n", socket);
+    printf("controlSocket is %i \n", controlSocket);
     
+    close(controlSocket);
     return 0;
-};
+}
 
+
+/* Main */
 
 int main(int argc, char *argv[])
 {
     int    gethost, connVal, connectReturn;
     pthread_t tid;
-    struct addrinfo *result, *resultIter, hints;
-    struct threadParams *passThru;
-   
+    struct addrinfo *result = malloc(sizeof(*result)), *resultIter = malloc(sizeof(*resultIter)), hints;
+    struct threadParams *passThru = malloc(sizeof(*passThru));
+    
     bzero(&result, sizeof(result));
+   // bzero(&passThru, sizeof(passThru));
     
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_UNSPEC;    /* Allow IPv4 & IPv6 for test */
@@ -125,24 +130,18 @@ int main(int argc, char *argv[])
     freeaddrinfo(result);
     printf("Connect call performed \n");
     
-    if ((connVal < 0 )) {
-        if (errno != EINTR)
-        {
-            fprintf(stderr, "Error connection request refused, errno = %d (%s) \n",
-                    errno, strerror(errno));
-        }
-    }
-    
-    malloc(sizeof(passThru));
-    bzero(&passThru, sizeof(passThru));
-    passThru->passAddr = resultIter;
+    passThru->passAddr = *resultIter;
     passThru->socket = connVal;
     
-        if (pthread_create(&tid, NULL, controlSession, (void *)passThru) != 0) {
+    printf("The passThru copy of socket is %i \n", (*passThru).socket);
+   
+        if (pthread_create(&tid, NULL, controlSession, (void*) passThru) != 0) {
             fprintf(stderr, "Error unable to create thread, errno = %d (%s) \n",
                     errno, strerror(errno));
         }
-        
+    
+    printf("Past threading \n");
+    return 0;
 }
 
 
