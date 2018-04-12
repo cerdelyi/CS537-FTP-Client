@@ -24,22 +24,42 @@
 
 const int backlog = 4;
 
- int controlSession()
+struct threadParams{
+    struct addrinfo *passAddr;
+    int socket;
+};
+
+void *controlSession(void *arg)
 {
-    printf("This passed through \n");
-    return 1;
+    printf("Entered control session \n");
+    
+    struct threadParams *passThru;
+    bzero(&passThru, sizeof(passThru));
+    passThru= (struct threadParams *) arg;
+    struct addrinfo *result = passThru->passAddr;
+    int socket = passThru->socket;
+    
+    printf("socket is %i \n", socket);
+    
+    return 0;
 };
 
 
 int main(int argc, char *argv[])
 {
-    int    requestfd, gethost, connVal;
+    int    gethost, connVal, connectReturn;
     pthread_t tid;
     struct addrinfo *result, *resultIter, hints;
+    struct threadParams *passThru;
    
     bzero(&result, sizeof(result));
     
-    hints.ai_family = AF_INET;
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 & IPv6 for test */
+    hints.ai_socktype = SOCK_STREAM; /* Stream socket */
+    hints.ai_flags = AI_CANONNAME | AI_ADDRCONFIG | AI_PASSIVE;
+    hints.ai_protocol = 0;          /* Any protocol */
+    
     
     if (argc == 1) {
         printf("Usage: sftp <address>. <Address> may be IPv4 or URL. \n");
@@ -52,42 +72,48 @@ int main(int argc, char *argv[])
          This function takes in the following parameters: const char hostname (URL or IP), const char port,
          struct addrinfo hints (can be NULL), struct addrinfo result (pass by reference).
          */
-        gethost = getaddrinfo("ftp://ftp.dlptest.com/", NULL, &hints, &result);
-        if(gethost == -1)
+        gethost = getaddrinfo(argv[1], "ftp", &hints, &result);
+        if(gethost != 0)
         {
-            fprintf(stderr, "Error unable to create socket, errno = %d (%s) \n",
+            fprintf(stderr, "Error unable to get host, errno = %d (%s) \n",
                     errno, strerror(errno));
             return -1;
         }
         
+        if(gethost == 0)
+        {
+            printf("Gethost works: canonname is %s \n", result->ai_canonname);
+        }
+        
     }
-    printf("Gethost works \n");
     
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_INET;    /* Allow IPv4 or IPv6 */
-    hints.ai_socktype = SOCK_STREAM; /* Datagram socket */
-    hints.ai_flags = 0;
-    hints.ai_protocol = 0;          /* Any protocol */
-    
-    requestfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (requestfd == -1)
+    for (resultIter = result; resultIter != NULL; resultIter = resultIter->ai_next)
     {
-        fprintf(stderr, "Error unable to create socket, errno = %d (%s) \n",
-                errno, strerror(errno));
-        return -1;
-    }
-    
-    printf("created socket %i \n", requestfd);
-    
-    for (resultIter = result; resultIter != NULL; resultIter = resultIter->ai_next) {
-        connVal = socket(resultIter->ai_family, resultIter->ai_socktype,
-                     resultIter->ai_protocol);
+        connVal = socket(resultIter->ai_family, resultIter->ai_socktype, resultIter->ai_protocol);
+        
+        if(resultIter != NULL)
+        {
+            printf("Result is not null \n");
+            printf("ConnVal: %i \n", connVal);
+        }
         if (connVal == -1)
+        {
             continue;
+        }
         
-        if (connect(connVal, resultIter->ai_addr, resultIter->ai_addrlen) != -1)
+        connectReturn = connect(connVal, (struct sockaddr *)resultIter->ai_addr, resultIter->ai_addrlen);
+        printf("ConnectReturn value is %i \n", connectReturn);
+        if (connectReturn != -1)
+        {
+            
+            printf("Successfully connected to socket %i via connect() \n", connVal);
             break;                  /* Success */
-        
+        }
+        else
+        {
+            fprintf(stderr, "Error connection request refused, errno = %d (%s) \n",
+                    errno, strerror(errno));
+        }
         close(connVal);
     }
     
@@ -99,15 +125,20 @@ int main(int argc, char *argv[])
     freeaddrinfo(result);
     printf("Connect call performed \n");
     
-    if ((requestfd < 0 )) {
+    if ((connVal < 0 )) {
         if (errno != EINTR)
         {
             fprintf(stderr, "Error connection request refused, errno = %d (%s) \n",
                     errno, strerror(errno));
         }
     }
-        
-        if (pthread_create(&tid, NULL, controlSession(), (void *)result) != 0) {
+    
+    malloc(sizeof(passThru));
+    bzero(&passThru, sizeof(passThru));
+    passThru->passAddr = resultIter;
+    passThru->socket = connVal;
+    
+        if (pthread_create(&tid, NULL, controlSession, (void *)passThru) != 0) {
             fprintf(stderr, "Error unable to create thread, errno = %d (%s) \n",
                     errno, strerror(errno));
         }
