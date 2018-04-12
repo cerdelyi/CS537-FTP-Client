@@ -24,23 +24,13 @@
 
 const int backlog = 4;
 
-struct threadParams{
-    struct addrinfo passAddr;
-    int socket;
-};
-
-void *controlSession(void *arg)
+int controlSession(struct addrInfo *result, int controlSocket)
 {
     
     printf("Entered control session \n");
-    
-    struct threadParams *passThru = malloc(sizeof(*passThru));
-    bzero(&passThru, sizeof(passThru));
-    passThru= (struct threadParams *) arg;
-    struct addrinfo *result = &(passThru->passAddr);
-    int controlSocket = passThru->socket;
-    
     printf("controlSocket is %i \n", controlSocket);
+    
+    
     
     close(controlSocket);
     return 0;
@@ -52,9 +42,7 @@ void *controlSession(void *arg)
 int main(int argc, char *argv[])
 {
     int    gethost, connVal, connectReturn;
-    pthread_t tid;
     struct addrinfo *result = malloc(sizeof(*result)), *resultIter = malloc(sizeof(*resultIter)), hints;
-    struct threadParams *passThru = malloc(sizeof(*passThru));
     
     bzero(&result, sizeof(result));
    // bzero(&passThru, sizeof(passThru));
@@ -129,18 +117,9 @@ int main(int argc, char *argv[])
     
     freeaddrinfo(result);
     printf("Connect call performed \n");
-    
-    passThru->passAddr = *resultIter;
-    passThru->socket = connVal;
-    
-    printf("The passThru copy of socket is %i \n", (*passThru).socket);
    
-        if (pthread_create(&tid, NULL, controlSession, (void*) passThru) != 0) {
-            fprintf(stderr, "Error unable to create thread, errno = %d (%s) \n",
-                    errno, strerror(errno));
-        }
+    controlSession(resultIter, connVal);
     
-    printf("Past threading \n");
     return 0;
 }
 
