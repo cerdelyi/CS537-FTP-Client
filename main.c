@@ -30,6 +30,24 @@ int controlSession(struct addrInfo *result, int controlSocket)
     printf("Entered control session \n");
     printf("controlSocket is %i \n", controlSocket);
     
+    char serverResponse[MAXLINE];
+    char* USER = "USER anonymous\r\n";
+    char* PASS = "PASS anonymous@csusm.edu\r\n";
+    char* PASV = "PASV\r\n";
+    
+    read(controlSocket, serverResponse, MAXLINE);
+    printf("Server: %s \n", serverResponse);
+    
+    write(controlSocket, USER, strlen(USER)+1);
+    
+    printf("Sent USER \n");
+    
+    read(controlSocket, serverResponse, MAXLINE);
+    { printf("Server: %s \n", serverResponse);}
+    
+    write(controlSocket, PASV, strlen(PASV)+1);
+    read(controlSocket, serverResponse, MAXLINE);
+    printf("Server: %s \n", serverResponse);
     
     
     close(controlSocket);
