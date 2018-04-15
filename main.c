@@ -20,34 +20,67 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#define MAXLINE 1500
+#define MAXLINE 4000
 
 const int backlog = 4;
 
 int controlSession(struct addrInfo *result, int controlSocket)
 {
-    
+   
     printf("Entered control session \n");
     printf("controlSocket is %i \n", controlSocket);
     
-    char serverResponse[MAXLINE];
+    char serverResponse[MAXLINE+1];
     char* USER = "USER anonymous\r\n";
     char* PASS = "PASS anonymous@csusm.edu\r\n";
     char* PASV = "PASV\r\n";
     
+    ssize_t bytesIn;
+    memset(&serverResponse[0], 0, sizeof(serverResponse));
+    
+    sleep(1);
     read(controlSocket, serverResponse, MAXLINE);
-    printf("Server: %s \n", serverResponse);
+            serverResponse[strlen(serverResponse)+1] = '\0';
+            printf("Server: %s \n", serverResponse);
+            fflush(stdout);
+    
+    
     
     write(controlSocket, USER, strlen(USER)+1);
     
     printf("Sent USER \n");
+    fflush(stdout);
+    sleep(1);
     
-    read(controlSocket, serverResponse, MAXLINE);
-    { printf("Server: %s \n", serverResponse);}
+    bytesIn = read(controlSocket, serverResponse, MAXLINE);
+    serverResponse[strlen(serverResponse)+1] = '\0';
+    printf("Server: %s \n", serverResponse);
+    printf("\n\n ***** read %i bytes ******* \n\n", bytesIn);
+    fflush(stdout);
+ 
+    write(controlSocket, PASS, strlen(PASS)+1);
+    
+    printf("Sent PASS \n");
+    fflush(stdout);
+    sleep(2);
+    
+    bytesIn = read(controlSocket, serverResponse, MAXLINE);
+    serverResponse[strlen(serverResponse)+1] = '\0';
+    printf("Server: %s \n", serverResponse);
+    printf("\n\n ***** read %i bytes ******* \n\n", bytesIn);
+    fflush(stdout);
+    
     
     write(controlSocket, PASV, strlen(PASV)+1);
+    printf("Sent PASV \n");
+    memset(&serverResponse[0], 0, sizeof(serverResponse));
+    
+    sleep(1);
     read(controlSocket, serverResponse, MAXLINE);
     printf("Server: %s \n", serverResponse);
+    
+    
+    
     
     
     close(controlSocket);
