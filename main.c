@@ -3,7 +3,8 @@
 //  CS537 FTP Client
 //
 //  Created by Christopher Erdelyi on 4/7/18.
-//  Copyright © 2018 Christopher Erdelyi. All rights reserved.
+//	Contributed to by John Wu.
+//  Copyright © 2018 Christopher Erdelyi, John Wu. All rights reserved.
 //
 
 #include <stdio.h>
@@ -30,12 +31,9 @@ int dataConnSetup(char* pasvSetting)
     int dataSocket, dataConn, gethost, connectReturn, port1, port2;
     char *token, *ip1, *ip2, *ip3, *ip4, *p1, *p2, *dataPortString, addr[16];
     
-    
     printf("String is %s \n", pasvSetting);
     token = strtok(pasvSetting, "(");
     printf("Token found: %s\n", token);
-    
-    
     
     ip1 = strtok(NULL, ",");
     ip2 = strtok(NULL, ",");
@@ -77,14 +75,10 @@ int dataConnSetup(char* pasvSetting)
     return dataConn;
 }
 
-int controlSession(int controlSocket)
+int controlSession(int controlSocket, int numPaths, char* serverDir, char* localDir)
 {
-    
-    printf("Entered control session \n");
-    printf("controlSocket is %i \n", controlSocket);
     char serverResponse[MAXLINE+1], originalResponse[MAXLINE+1], dataBlock[MAXLINE+1];
-    char* servNumbers;
-    char* userQuit = "221";
+	char userinput[500];
     char* USER = "USER anonymous\r\n";
     char* PASS = "PASS \r\n";
     char* PASV = "PASV\r\n";
@@ -100,67 +94,104 @@ int controlSession(int controlSocket)
     ssize_t bytesIn;
     memset(&serverResponse[0], 0, sizeof(serverResponse));
     memset(&dataBlock[0], 0, sizeof(dataBlock));
+	sleep(1);
     
-    sleep(1);
-    read(controlSocket, serverResponse, MAXLINE);
+	read(controlSocket, serverResponse, MAXLINE);
     serverResponse[strlen(serverResponse)+1] = '\0';
     printf("Server: %s \n", serverResponse);
     fflush(stdout);
-    
-    servNumbers = strtok(serverResponse, " ");
-    responseCode = atoi(servNumbers);
-    
-    while(responseCode != 221){
-        switch(responseCode) {
-            case 220:   write(controlSocket, USER, strlen(USER));
-                printf("Sent USER \n");
+    responseCode = atoi(serverResponse);
+	
+	//attempt to do anonymous login
+	while(responseCode != 230)
+	{
+        switch(responseCode)
+		{
+            case 220:
+				write(controlSocket, USER, strlen(USER));
+				break;
+            case 331:
+				write(controlSocket, PASS, strlen(PASS));
                 break;
-                
-            case 331:   write(controlSocket, PASS, strlen(PASS));
-                printf("Sent PASS \n");
-                break;
-                
-            case 230:   write(controlSocket, PASV, strlen(PASV));
-                printf("Sent PASV \n");
-                break;
-                
-            case 227:   //use function to parse string to get port number
-                dataSocket = dataConnSetup(originalResponse);
-                printf("FTP data connection established. \n");
-                write(controlSocket, NLST, strlen(NLST));
-                printf("Sent NLST \n");
-                while (read(dataSocket, dataBlock, MAXLINE))
-                {
-                    printf("DIR LISTING:\n %s \n", dataBlock);
-                }
-                memset(&dataBlock[0], 0, sizeof(dataBlock));
-                break;
-            default:    write(controlSocket, QUIT, strlen(QUIT));
-                break;
-                
-                
-        }
-        
-        memset(&serverResponse[0], 0, sizeof(serverResponse));
+ 			default:
+				printf("ERROR: expecting 230.  Actually got: %d", responseCode);
+				write(controlSocket, QUIT, strlen(QUIT));
+				exit(EXIT_FAILURE);
+				break;
+		}
+		memset(&serverResponse[0], 0, sizeof(serverResponse));
         sleep(1);
         
-        bytesIn = read(controlSocket, serverResponse, MAXLINE);
-        serverResponse[strlen(serverResponse)+1] = '\0';
-        printf("Server: %s \n", serverResponse);
-        printf(" ***** read %i bytes ******* \n\n", bytesIn);
-        fflush(stdout);
-        strcpy(originalResponse, serverResponse);
-        servNumbers = strtok(serverResponse, " ");
-        responseCode = atoi(servNumbers);
-        printf("Server Response by case loop is %s\n", serverResponse);
-        
+		read(controlSocket, serverResponse, MAXLINE);
+		serverResponse[strlen(serverResponse)+1] = '\0';
+		printf("Server: %s \n", serverResponse);
+		fflush(stdout);
+		responseCode = atoi(serverResponse);
+	}
+	
+	//INSERT CWD handling for if there is server path here
+	
+	//get user input and handle requests
+	printf("sftp> ");
+	fgets(userinput, 500, stdin);
+    while(strncmp(userinput, "quit", 4) != 0)
+	{
+		if(strncmp(userinput, "ls", 2) == 0)
+		{
+			write(controlSocket, PASV, strlen(PASV));
+			memset(&serverResponse[0], 0, sizeof(serverResponse));
+			sleep(1);
+			
+			read(controlSocket, serverResponse, MAXLINE);
+			serverResponse[strlen(serverResponse)+1] = '\0';
+			printf("Server: %s \n", serverResponse);
+			fflush(stdout);
+			responseCode = atoi(serverResponse);
+			if (responseCode == 227)
+			{
+				dataSocket = dataConnSetup(serverResponse);
+				write(controlSocket, NLST, strlen(NLST));
+				memset(&serverResponse[0], 0, sizeof(serverResponse));
+				sleep(1);
+				
+				read(controlSocket, serverResponse, MAXLINE);
+				serverResponse[strlen(serverResponse)+1] = '\0';
+				printf("Server: %s \n", serverResponse);
+				fflush(stdout);
+				responseCode = atoi(serverResponse);
+				while (read(dataSocket, dataBlock, MAXLINE))
+				{
+					printf("DIR LISTING:\n%s \n", dataBlock);
+					memset(&dataBlock[0], 0, sizeof(dataBlock));
+				}
+			}
+		}
+		printf("sftp> ");
+		fgets(userinput, 500, stdin);
     }
-    
-    close(controlSocket);
-    
-    return 0;
+	
+	//user choose to quit
+    write(controlSocket, QUIT, strlen(QUIT));
+ 	memset(&serverResponse[0], 0, sizeof(serverResponse));
+    sleep(1);
+	read(controlSocket, serverResponse, MAXLINE);
+	serverResponse[strlen(serverResponse)+1] = '\0';
+	printf("Server: %s \n", serverResponse);
+	fflush(stdout);
+	responseCode = atoi(serverResponse);
+	if (responseCode != 221)
+	{
+		printf("ERROR: expecting 221.  Actually got: %d", responseCode);
+		close(controlSocket);
+		exit(EXIT_FAILURE);		
+	}
+	
+	//move this to main() ???
+	close(controlSocket);
+	
+	return 0;
 }
-
+    
 
 
 /* Main */
@@ -260,4 +291,3 @@ int main(int argc, char *argv[])
     
     return 0;
 }
-
