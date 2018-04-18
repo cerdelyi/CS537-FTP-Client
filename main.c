@@ -27,13 +27,13 @@ const int backlog = 4;
 
 int dataConnSetup(char* pasvSetting)
 {
-    printf("Inside data conn setup \n");
+    printf(" --Inside data conn setup \n");
     int dataSocket, dataConn, gethost, connectReturn, port1, port2;
     char *token, *ip1, *ip2, *ip3, *ip4, *p1, *p2, *dataPortString, addr[16];
     
-    printf("String is %s \n", pasvSetting);
+    printf(" --String is %s \n", pasvSetting);
     token = strtok(pasvSetting, "(");
-    printf("Token found: %s\n", token);
+    printf(" --Token found: %s\n", token);
     
     ip1 = strtok(NULL, ",");
     ip2 = strtok(NULL, ",");
@@ -41,17 +41,17 @@ int dataConnSetup(char* pasvSetting)
     ip4 = strtok(NULL, ",");
     
     p1 = strtok(NULL, ",");
-    printf("P1 is %s \n", p1);
+    printf(" --P1 is %s \n", p1);
     p2 = strtok(NULL, ")");
-    printf("P2 is %s \n", p2);
+    printf(" --P2 is %s \n", p2);
     port1 = atoi(p1);
     port2 = atoi(p2);
     
     snprintf(addr, 16, "%s.%s.%s.%s", ip1, ip2, ip3, ip4);
-    printf("Full IP is %s \n", addr);
+    printf(" --Full IP is %s \n", addr);
     
     dataSocket = ((port1 * 256) + port2);
-    printf("DataSocket is %i \n", dataSocket);
+    printf(" --DataSocket is %i \n", dataSocket);
     
     struct sockaddr_in pass;
     pass.sin_family        = AF_INET;
@@ -60,11 +60,11 @@ int dataConnSetup(char* pasvSetting)
     
     dataConn = socket(pass.sin_family, SOCK_STREAM, 0);
     connectReturn = connect(dataConn, (struct sockaddr_in*)&pass, sizeof(pass));
-    printf("ConnectReturn value is %i \n", connectReturn);
+    printf(" --ConnectReturn value is %i \n", connectReturn);
     if (connectReturn != -1)
     {
         
-        printf("Successfully connected to socket %i via connect() \n", dataConn);                  // Success
+        printf(" --Successfully connected to socket %i via connect() \n", dataConn);                  // Success
     }
     else
     {
@@ -75,9 +75,41 @@ int dataConnSetup(char* pasvSetting)
     return dataConn;
 }
 
+int handleResponse(int cSock, char* servResp)
+{
+	int respNum;
+	char* copy;
+	char* responseLine;
+    char* QUIT = "QUIT\r\n";
+	
+	memset(&servResp[0], 0, MAXLINE);
+	sleep(1);
+	read(cSock, servResp, MAXLINE);
+	servResp[strlen(servResp)+1] = '\0';
+//	printf("Server: %s\n", servResp);
+//	fflush(stdout);
+//	return atoi(servResp);
+	copy = (char*) malloc(strlen(servResp));
+	strcpy(copy, servResp);
+	responseLine = strtok(copy, "\r\n");
+	while(responseLine != NULL)
+	{
+		printf("%s\n", responseLine);
+		respNum = atoi(responseLine);
+		if(respNum >= 400)
+		{
+			printf("ERROR: received negative reply: %d\n", respNum);
+			write(cSock, QUIT, strlen(QUIT));
+			exit(EXIT_FAILURE);
+		}
+		responseLine = strtok(NULL, "\r\n");
+	}
+	return respNum;
+}
+
 int controlSession(int controlSocket, int numPaths, char* serverDir, char* localDir)
 {
-    char serverResponse[MAXLINE+1], originalResponse[MAXLINE+1], dataBlock[MAXLINE+1];
+    char serverResponse[MAXLINE+1], dataBlock[MAXLINE+1];
 	char userinput[500];
     char* USER = "USER anonymous\r\n";
     char* PASS = "PASS \r\n";
@@ -90,17 +122,12 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
     
     int responseCode;
     int dataSocket;
-    
     ssize_t bytesIn;
-    memset(&serverResponse[0], 0, sizeof(serverResponse));
+
     memset(&dataBlock[0], 0, sizeof(dataBlock));
-	sleep(1);
-    
-	read(controlSocket, serverResponse, MAXLINE);
-    serverResponse[strlen(serverResponse)+1] = '\0';
-    printf("Server: %s \n", serverResponse);
-    fflush(stdout);
-    responseCode = atoi(serverResponse);
+	
+	//read initial server response
+    responseCode = handleResponse(controlSocket, serverResponse);
 	
 	//attempt to do anonymous login
 	while(responseCode != 230)
@@ -114,19 +141,12 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 				write(controlSocket, PASS, strlen(PASS));
                 break;
  			default:
-				printf("ERROR: expecting 230.  Actually got: %d", responseCode);
+				printf("ERROR: expecting 230.  Actually got: %d\n", responseCode);
 				write(controlSocket, QUIT, strlen(QUIT));
 				exit(EXIT_FAILURE);
 				break;
 		}
-		memset(&serverResponse[0], 0, sizeof(serverResponse));
-        sleep(1);
-        
-		read(controlSocket, serverResponse, MAXLINE);
-		serverResponse[strlen(serverResponse)+1] = '\0';
-		printf("Server: %s \n", serverResponse);
-		fflush(stdout);
-		responseCode = atoi(serverResponse);
+		responseCode = handleResponse(controlSocket, serverResponse);
 	}
 	
 	//INSERT CWD handling for if there is server path here
@@ -139,26 +159,12 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 		if(strncmp(userinput, "ls", 2) == 0)
 		{
 			write(controlSocket, PASV, strlen(PASV));
-			memset(&serverResponse[0], 0, sizeof(serverResponse));
-			sleep(1);
-			
-			read(controlSocket, serverResponse, MAXLINE);
-			serverResponse[strlen(serverResponse)+1] = '\0';
-			printf("Server: %s \n", serverResponse);
-			fflush(stdout);
-			responseCode = atoi(serverResponse);
+			responseCode = handleResponse(controlSocket, serverResponse);
 			if (responseCode == 227)
 			{
 				dataSocket = dataConnSetup(serverResponse);
 				write(controlSocket, NLST, strlen(NLST));
-				memset(&serverResponse[0], 0, sizeof(serverResponse));
-				sleep(1);
-				
-				read(controlSocket, serverResponse, MAXLINE);
-				serverResponse[strlen(serverResponse)+1] = '\0';
-				printf("Server: %s \n", serverResponse);
-				fflush(stdout);
-				responseCode = atoi(serverResponse);
+				responseCode = handleResponse(controlSocket, serverResponse);
 				while (read(dataSocket, dataBlock, MAXLINE))
 				{
 					printf("DIR LISTING:\n%s \n", dataBlock);
@@ -172,23 +178,14 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 	
 	//user choose to quit
     write(controlSocket, QUIT, strlen(QUIT));
- 	memset(&serverResponse[0], 0, sizeof(serverResponse));
-    sleep(1);
-	read(controlSocket, serverResponse, MAXLINE);
-	serverResponse[strlen(serverResponse)+1] = '\0';
-	printf("Server: %s \n", serverResponse);
-	fflush(stdout);
-	responseCode = atoi(serverResponse);
+ 	responseCode = handleResponse(controlSocket, serverResponse);
 	if (responseCode != 221)
 	{
-		printf("ERROR: expecting 221.  Actually got: %d", responseCode);
+		printf("ERROR: expecting 221.  Actually got: %d\n", responseCode);
 		close(controlSocket);
 		exit(EXIT_FAILURE);		
 	}
-	
-	//move this to main() ???
-	close(controlSocket);
-	
+		
 	return 0;
 }
     
@@ -232,7 +229,7 @@ int main(int argc, char *argv[])
         
         if(gethost == 0)
         {
-            printf("Gethost works: canonname is %s \n", result->ai_canonname);
+            printf(" --Gethost works: canonname is %s \n", result->ai_canonname);
         }
         
     }
@@ -243,8 +240,8 @@ int main(int argc, char *argv[])
         
         if(resultIter != NULL)
         {
-            printf("Result is not null \n");
-            printf("ConnVal: %i \n", connVal);
+            printf(" --Result is not null \n");
+            printf(" --ConnVal: %i \n", connVal);
         }
         if (connVal == -1)
         {
@@ -252,11 +249,11 @@ int main(int argc, char *argv[])
         }
         
         connectReturn = connect(connVal, (struct sockaddr *)resultIter->ai_addr, resultIter->ai_addrlen);
-        printf("ConnectReturn value is %i \n", connectReturn);
+        printf(" --ConnectReturn value is %i \n", connectReturn);
         if (connectReturn != -1)
         {
             
-            printf("Successfully connected to socket %i via connect() \n", connVal);
+            printf(" --Successfully connected to socket %i via connect() \n", connVal);
             break;                  /* Success */
         }
         else
@@ -273,7 +270,7 @@ int main(int argc, char *argv[])
     }
     
     freeaddrinfo(result);
-    printf("Connect call performed \n");
+    printf(" --Connect call performed \n");
     
     int checkNumPaths = 0;
     char* serverDirectory, *localDirectory;
@@ -288,6 +285,8 @@ int main(int argc, char *argv[])
         checkNumPaths++;
     }
     controlSession(connVal, checkNumPaths, serverDirectory, localDirectory);
-    
+	
+	close(connVal);
+   
     return 0;
 }
