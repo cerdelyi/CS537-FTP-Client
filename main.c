@@ -27,13 +27,10 @@ const int backlog = 4;
 
 int dataConnSetup(char* pasvSetting)
 {
-    printf(" --Inside data conn setup \n");
     int dataSocket, dataConn, gethost, connectReturn, port1, port2;
     char *token, *ip1, *ip2, *ip3, *ip4, *p1, *p2, *dataPortString, addr[16];
     
-    printf(" --String is %s \n", pasvSetting);
     token = strtok(pasvSetting, "(");
-    printf(" --Token found: %s\n", token);
     
     ip1 = strtok(NULL, ",");
     ip2 = strtok(NULL, ",");
@@ -41,17 +38,14 @@ int dataConnSetup(char* pasvSetting)
     ip4 = strtok(NULL, ",");
     
     p1 = strtok(NULL, ",");
-    printf(" --P1 is %s \n", p1);
     p2 = strtok(NULL, ")");
-    printf(" --P2 is %s \n", p2);
     port1 = atoi(p1);
     port2 = atoi(p2);
     
     snprintf(addr, 16, "%s.%s.%s.%s", ip1, ip2, ip3, ip4);
-    printf(" --Full IP is %s \n", addr);
     
     dataSocket = ((port1 * 256) + port2);
-    printf(" --DataSocket is %i \n", dataSocket);
+    printf(" --Data connection: IP %s, Socket %i \n", addr, dataSocket);
     
     struct sockaddr_in pass;
     pass.sin_family        = AF_INET;
@@ -60,11 +54,9 @@ int dataConnSetup(char* pasvSetting)
     
     dataConn = socket(pass.sin_family, SOCK_STREAM, 0);
     connectReturn = connect(dataConn, (struct sockaddr_in*)&pass, sizeof(pass));
-    printf(" --ConnectReturn value is %i \n", connectReturn);
     if (connectReturn != -1)
-    {
-        
-        printf(" --Successfully connected to socket %i via connect() \n", dataConn);                  // Success
+    {        
+        printf(" --Data connection. IP %s, Socket %i \n", addr, dataSocket);                  // Success
     }
     else
     {
@@ -75,6 +67,8 @@ int dataConnSetup(char* pasvSetting)
     return dataConn;
 }
 
+//takes entire server response and checks line by line
+//returns response code of last line (except if find a >= 400 code, then returns that)
 int handleResponse(int cSock, char* servResp)
 {
 	int respNum;
@@ -86,9 +80,6 @@ int handleResponse(int cSock, char* servResp)
 	sleep(1);
 	read(cSock, servResp, MAXLINE);
 	servResp[strlen(servResp)+1] = '\0';
-//	printf("Server: %s\n", servResp);
-//	fflush(stdout);
-//	return atoi(servResp);
 	copy = (char*) malloc(strlen(servResp));
 	strcpy(copy, servResp);
 	responseLine = strtok(copy, "\r\n");
@@ -97,16 +88,27 @@ int handleResponse(int cSock, char* servResp)
 		printf("%s\n", responseLine);
 		respNum = atoi(responseLine);
 		if(respNum >= 400)
-		{
-			printf("ERROR: received negative reply: %d\n", respNum);
-			write(cSock, QUIT, strlen(QUIT));
-			exit(EXIT_FAILURE);
-		}
+			break;
 		responseLine = strtok(NULL, "\r\n");
 	}
 	return respNum;
 }
 
+//given server response code and expected code
+//   if not match, error message and quit program. else nothing
+void errorQuit(int cSock, int rCode, int expected)
+{
+    char* QUIT = "QUIT\r\n";
+	if (rCode != expected)
+	{
+		printf("ERROR: received %d (was expecting %d).\n", rCode, expected);
+		write(cSock, QUIT, strlen(QUIT));
+		exit(EXIT_FAILURE);
+	}
+}
+
+//sets up anonymous login
+//loops through allowing user requests and appropriate ftp actions
 int controlSession(int controlSocket, int numPaths, char* serverDir, char* localDir)
 {
     char serverResponse[MAXLINE+1], dataBlock[MAXLINE+1];
@@ -115,8 +117,8 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
     char* PASS = "PASS \r\n";
     char* PASV = "PASV\r\n";
     char* TYPE = "TYPE I\r\n";
-    char* CWD = "CWD /tmp\r\n";
-    char* NLST = "NLST /\r\n";
+    char* CWD = "CWD ";
+    char* NLST = "NLST ";
     char* HELP = "HELP\r\n";
     char* QUIT = "QUIT\r\n";
     
@@ -141,50 +143,88 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 				write(controlSocket, PASS, strlen(PASS));
                 break;
  			default:
-				printf("ERROR: expecting 230.  Actually got: %d\n", responseCode);
-				write(controlSocket, QUIT, strlen(QUIT));
-				exit(EXIT_FAILURE);
+				errorQuit(controlSocket, responseCode, 230);
 				break;
 		}
 		responseCode = handleResponse(controlSocket, serverResponse);
 	}
 	
-	//INSERT CWD handling for if there is server path here
+	//CWD to change server directory if user included a command line arg for it
+	if (numPaths > 0)
+	{
+		char* CWD_arg = malloc(strlen((CWD)) + strlen(serverDir) + 2);
+		strcpy(CWD_arg, CWD);
+		strcat(CWD_arg, serverDir);
+		strcat(CWD_arg, "\r\n");
+		printf(" --sending: %s", CWD_arg);
+		write(controlSocket, CWD_arg, strlen(CWD_arg));
+		
+		responseCode = handleResponse(controlSocket, serverResponse);
+		errorQuit(controlSocket, responseCode, 250);
+	}
 	
 	//get user input and handle requests
 	printf("sftp> ");
 	fgets(userinput, 500, stdin);
-    while(strncmp(userinput, "quit", 4) != 0)
+	printf(" --user input received: %s", userinput);
+    while(strcmp(userinput, "quit\n") != 0)
 	{
+		//directory listing request
 		if(strncmp(userinput, "ls", 2) == 0)
 		{
+			char* path = strtok(userinput, " ");
+			path = strtok(NULL, " ");
+			char* NLST_arg;
+			if (path != NULL)
+			{
+				NLST_arg = malloc(strlen((NLST)) + strlen(path) + 2);
+				strcpy(NLST_arg, NLST);
+				strcat(NLST_arg, path);
+				strcat(NLST_arg, "\r\n");
+			}
+			else
+			{
+				NLST_arg = malloc(strlen((NLST)) + 2);
+				strcpy(NLST_arg, NLST);
+				strcat(NLST_arg, "\r\n");
+			}
+			
+			//send PASV
 			write(controlSocket, PASV, strlen(PASV));
 			responseCode = handleResponse(controlSocket, serverResponse);
-			if (responseCode == 227)
+			errorQuit(controlSocket, responseCode, 227);
+			//PASV success: setup data connetion, send NLST
+			dataSocket = dataConnSetup(serverResponse);
+			printf(" --sending: %s", NLST_arg);
+			write(controlSocket, NLST_arg, strlen(NLST_arg));
+			responseCode = handleResponse(controlSocket, serverResponse);
+			errorQuit(controlSocket, responseCode, 226);
+			//server sent directory success -> read and show data from data socket
+			while (read(dataSocket, dataBlock, MAXLINE))
 			{
-				dataSocket = dataConnSetup(serverResponse);
-				write(controlSocket, NLST, strlen(NLST));
-				responseCode = handleResponse(controlSocket, serverResponse);
-				while (read(dataSocket, dataBlock, MAXLINE))
-				{
-					printf("DIR LISTING:\n%s \n", dataBlock);
-					memset(&dataBlock[0], 0, sizeof(dataBlock));
-				}
+				printf("%s", dataBlock);
+				memset(&dataBlock[0], 0, sizeof(dataBlock));
 			}
+		}
+		//get request
+		else if (strncmp(userinput, "get", 3) == 0)
+		{
+		}
+		//help
+		else if (strncmp(userinput, "help", 4) == 0)
+		{
+			write(controlSocket, HELP, strlen(HELP));
+			responseCode = handleResponse(controlSocket, serverResponse);
 		}
 		printf("sftp> ");
 		fgets(userinput, 500, stdin);
+		printf(" --user input received: %s", userinput);
     }
 	
-	//user choose to quit
+	//user is quiting
     write(controlSocket, QUIT, strlen(QUIT));
  	responseCode = handleResponse(controlSocket, serverResponse);
-	if (responseCode != 221)
-	{
-		printf("ERROR: expecting 221.  Actually got: %d\n", responseCode);
-		close(controlSocket);
-		exit(EXIT_FAILURE);		
-	}
+	errorQuit(controlSocket, responseCode, 221);
 		
 	return 0;
 }
