@@ -82,23 +82,24 @@ int controlSession(int controlSocket)
    
     printf("Entered control session \n");
     printf("controlSocket is %i \n", controlSocket);
-    char serverResponse[MAXLINE+1], originalResponse[MAXLINE+1];
+    char serverResponse[MAXLINE+1], originalResponse[MAXLINE+1], dataBlock[MAXLINE+1];
     char* servNumbers;
     char* userQuit = "221";
-    char* USER = "USER anonymous\n";
-    char* PASS = "PASS \n";
-    char* PASV = "PASV\n";
-    char* TYPE = "TYPE I\n";
-    char* CWD = "CWD /tmp\n";
-    char* NLST = "NLST /\n";
-    char* HELP = "HELP\n";
-    char* QUIT = "QUIT\n";
+    char* USER = "USER anonymous\r\n";
+    char* PASS = "PASS \r\n";
+    char* PASV = "PASV\r\n";
+    char* TYPE = "TYPE I\r\n";
+    char* CWD = "CWD /tmp\r\n";
+    char* NLST = "NLST /\r\n";
+    char* HELP = "HELP\r\n";
+    char* QUIT = "QUIT\r\n";
     
     int responseCode;
     int dataSocket;
     
     ssize_t bytesIn;
     memset(&serverResponse[0], 0, sizeof(serverResponse));
+    memset(&dataBlock[0], 0, sizeof(dataBlock));
     
     sleep(1);
     read(controlSocket, serverResponse, MAXLINE);
@@ -126,8 +127,17 @@ int controlSession(int controlSocket)
             case 227:   //use function to parse string to get port number
                         dataSocket = dataConnSetup(originalResponse);
                         printf("FTP data connection established. \n");
-                        write(controlSocket, QUIT, strlen(QUIT));
+						write(controlSocket, NLST, strlen(NLST));
+						printf("Sent NLST \n");
+						while (read(dataSocket, dataBlock, MAXLINE))
+						{
+							printf("DIR LISTING:\n %s \n", dataBlock);
+						}
+						memset(&dataBlock[0], 0, sizeof(dataBlock));
                         break;
+			default:	write(controlSocket, QUIT, strlen(QUIT));
+						break;
+
         
         }
  
@@ -137,7 +147,7 @@ int controlSession(int controlSocket)
         bytesIn = read(controlSocket, serverResponse, MAXLINE);
         serverResponse[strlen(serverResponse)+1] = '\0';
         printf("Server: %s \n", serverResponse);
-        printf("\n\n ***** read %i bytes ******* \n\n", bytesIn);
+        printf(" ***** read %i bytes ******* \n\n", bytesIn);
         fflush(stdout);
         strcpy(originalResponse, serverResponse);
         servNumbers = strtok(serverResponse, " ");
@@ -146,7 +156,7 @@ int controlSession(int controlSocket)
     
     }
     
-        close(controlSocket);
+    close(controlSocket);
     
     return 0;
 }
