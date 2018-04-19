@@ -14,6 +14,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <netdb.h>
 #include <sys/wait.h>
 #include <errno.h>
@@ -157,7 +158,6 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
         strcpy(CWD_arg, CWD);
         strcat(CWD_arg, serverDir);
         strcat(CWD_arg, "\r\n");
-        printf(" --sending: %s", CWD_arg);
         write(controlSocket, CWD_arg, strlen(CWD_arg));
         
         responseCode = handleResponse(controlSocket, serverResponse);
@@ -196,11 +196,11 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             errorQuit(controlSocket, responseCode, 227);
             //PASV success: setup data connetion, send NLST
             dataSocket = dataConnSetup(serverResponse);
-            printf(" --sending: %s", NLST_arg);
             write(controlSocket, NLST_arg, strlen(NLST_arg));
             responseCode = handleResponse(controlSocket, serverResponse);
             errorQuit(controlSocket, responseCode, 226);
             //server sent directory success -> read and show data from data socket
+            printf(" --File Directory-- \n");
             while (read(dataSocket, dataBlock, MAXLINE))
             {
                 printf("%s", dataBlock);
@@ -215,7 +215,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             char* RETR_arg;
             if (serverPathFile == NULL)    //no filename provided
             {
-                printf(" --Usage: get [<directory>]/<filename> [<local directory>].\n");
+                printf(" --Usage: get [<directory>]/<filename> [<local directory>]/\n");
             }
             else    //filename (and/or path given
             {
@@ -246,12 +246,9 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 }
                 else if (numPaths >= 2)    //local dir only
                 {
-                    printf(" --localDir: %s\n", localDir);
                     localPathFile = malloc(2 + strlen(localDir) + strlen(filename));
                     strcpy(localPathFile, "./");
-                    printf(" --localPathFile: %s\n", localPathFile);
                     strcat(localPathFile, localDir);
-                    printf(" --localPathFile: %s\n", localPathFile);
                     mkdir(localPathFile, 0777);        //create dir if doesn't exit
                     strcat(localPathFile, filename);
                 }
@@ -268,7 +265,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                     localPathFile = malloc(strlen(filename));
                     strcpy(localPathFile, filename);
                 }
-                printf(" --Save File Location: %s\n", localPathFile);
+				
                 //open Image data connection
                 //send PASV
                 write(controlSocket, PASV, strlen(PASV));
@@ -276,11 +273,9 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 errorQuit(controlSocket, responseCode, 227);
                 //PASV success: setup data connetion in binary, send RETR
                 dataSocket = dataConnSetup(serverResponse);
-                printf(" --sending: %s", TYPE);
                 write(controlSocket, TYPE, strlen(TYPE));
                 responseCode = handleResponse(controlSocket, serverResponse);
                 errorQuit(controlSocket, responseCode, 200);
-                printf(" --sending: %s", RETR_arg);
                 write(controlSocket, RETR_arg, strlen(RETR_arg));
                 responseCode = handleResponse(controlSocket, serverResponse);
                 
@@ -319,7 +314,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                     responseCode = handleResponse(controlSocket, serverResponse);
                     errorQuit(controlSocket, responseCode, 226);
                 }
-                printf("%d bytes received\n", currentTransfer);
+                printf(" --%d bytes received at %s\n", currentTransfer, localPathFile);
             }
         }
         //help request
@@ -342,7 +337,6 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 strcpy(HELP_arg, HELP);
                 strcat(HELP_arg, "\r\n");
             }
-            printf(" --sending: %s", HELP_arg);
             write(controlSocket, HELP_arg, strlen(HELP_arg));
             responseCode = handleResponse(controlSocket, serverResponse);
             errorQuit(controlSocket, responseCode, 214);
@@ -358,12 +352,10 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             strcpy(CWD_arg, CWD);
             strcat(CWD_arg, newDir);
             strcat(CWD_arg, "\r\n");
-            printf(" --sending: %s", CWD_arg);
             write(controlSocket, CWD_arg, strlen(CWD_arg));
             responseCode = handleResponse(controlSocket, serverResponse);
             errorQuit(controlSocket, responseCode, 250);
         }
-        
         else
             printf(" --user input not recognized.\n");
         
@@ -472,8 +464,7 @@ int main(int argc, char *argv[])
     }
     if(argc == 4)
     {
-        char* localDirectory = argv[3];
-        printf(" --localDirectory: %s\n", localDirectory);
+        localDirectory = argv[3];
         checkNumPaths++;
     }
     controlSession(connVal, checkNumPaths, serverDirectory, localDirectory);
