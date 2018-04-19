@@ -173,6 +173,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 		{
 			char* path = strtok(userinput, " ");
 			path = strtok(NULL, " ");
+			path = strtok(path, "\n");
 			char* NLST_arg;
 			if (path != NULL)	//ls with path
 			{
@@ -248,10 +249,9 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 				}
 				else if (localPath != NULL)	//local path only
 				{
-					localPathFile = malloc(strlen(localPath) + strlen(filename)+1);
+					localPathFile = malloc(strlen(localPath) + strlen(filename));
 					strcpy(localPathFile, localPath);
 					strcat(localPathFile, filename);
-					strcat(localPathFile, "\0");
 				}
 				else	//no local dir and no local path
 				{
@@ -264,7 +264,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 				write(controlSocket, PASV, strlen(PASV));
 				responseCode = handleResponse(controlSocket, serverResponse);
 				errorQuit(controlSocket, responseCode, 227);
-				//PASV success: setup data connetion, send RETR
+				//PASV success: setup data connetion in binary, send RETR
 				dataSocket = dataConnSetup(serverResponse);
 				printf(" --sending: %s", TYPE);
 				write(controlSocket, TYPE, strlen(TYPE));
@@ -273,8 +273,13 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 				printf(" --sending: %s", RETR_arg);
 				write(controlSocket, RETR_arg, strlen(RETR_arg));
 				responseCode = handleResponse(controlSocket, serverResponse);
-				errorQuit(controlSocket, responseCode, 226);
 				
+				int delayed226 = 0;
+				if (responseCode == 150)
+					delayed226 = 1;
+				else
+					errorQuit(controlSocket, responseCode, 226);
+
 				//read data connection and write file
 				FILE* file = fopen(localPathFile, "w");
 				if(file!=NULL)
@@ -296,6 +301,12 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 					exit(EXIT_FAILURE);
 				}
 				fclose(file);
+				
+				if (delayed226)
+				{
+					responseCode = handleResponse(controlSocket, serverResponse);
+					errorQuit(controlSocket, responseCode, 226);
+				}
 			}
 		}
 		//help request
@@ -303,6 +314,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 		{
 			char* topic = strtok(userinput, " ");
 			topic = strtok(NULL, " ");
+			topic = strtok(topic, "\n");
 			char* HELP_arg;
 			if (topic != NULL)	//help on specific FTP request
 			{
@@ -378,7 +390,7 @@ int main(int argc, char *argv[])
         
         if(gethost == 0)
         {
-            printf(" --Gethost works: canonname is %s \n", result->ai_canonname);
+            //printf(" --Gethost works: canonname is %s \n", result->ai_canonname);
         }
         
     }
@@ -389,8 +401,8 @@ int main(int argc, char *argv[])
         
         if(resultIter != NULL)
         {
-            printf(" --Result is not null \n");
-            printf(" --ConnVal: %i \n", connVal);
+            //printf(" --Result is not null \n");
+            //printf(" --ConnVal: %i \n", connVal);
         }
         if (connVal == -1)
         {
@@ -398,11 +410,11 @@ int main(int argc, char *argv[])
         }
         
         connectReturn = connect(connVal, (struct sockaddr *)resultIter->ai_addr, resultIter->ai_addrlen);
-        printf(" --ConnectReturn value is %i \n", connectReturn);
+        //printf(" --ConnectReturn value is %i \n", connectReturn);
         if (connectReturn != -1)
         {
             
-            printf(" --Successfully connected to socket %i via connect() \n", connVal);
+            //printf(" --Successfully connected to socket %i via connect() \n", connVal);
             break;                  /* Success */
         }
         else
@@ -419,7 +431,7 @@ int main(int argc, char *argv[])
     }
     
     freeaddrinfo(result);
-    printf(" --Connect call performed \n");
+    //printf(" --Connect call performed \n");
     
     int checkNumPaths = 0;
     char* serverDirectory, *localDirectory;
