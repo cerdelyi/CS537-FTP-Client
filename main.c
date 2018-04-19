@@ -236,21 +236,30 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 				char* localPathFile;
 				if (numPaths >= 2 && localPath != NULL)	//local dir and path provided
 				{
-					localPathFile = malloc(strlen(localDir) + strlen(localPath) + strlen(filename));
-					strcpy(localPathFile, localDir);
+					localPathFile = malloc(2 + strlen(localDir) + strlen(localPath) + strlen(filename));
+					strcpy(localPathFile, "./");
+					strcat(localPathFile, localDir);
 					strcat(localPathFile, localPath);
+					mkdir(localPathFile, 0777);		//create dir if doesn't exit
 					strcat(localPathFile, filename);
 				}
 				else if (numPaths >= 2)	//local dir only
 				{
-					localPathFile = malloc(strlen(localDir) + strlen(filename));
-					strcpy(localPathFile, localDir);
+					printf(" --localDir: %s\n", localDir);
+					localPathFile = malloc(2 + strlen(localDir) + strlen(filename));
+					strcpy(localPathFile, "./");
+					printf(" --localPathFile: %s\n", localPathFile);
+					strcat(localPathFile, localDir);
+					printf(" --localPathFile: %s\n", localPathFile);
+					mkdir(localPathFile, 0777);		//create dir if doesn't exit
 					strcat(localPathFile, filename);
 				}
 				else if (localPath != NULL)	//local path only
 				{
-					localPathFile = malloc(strlen(localPath) + strlen(filename));
-					strcpy(localPathFile, localPath);
+					localPathFile = malloc(2 + strlen(localPath) + strlen(filename));
+					strcpy(localPathFile, "./");
+					strcat(localPathFile, localPath);
+					mkdir(localPathFile, 0777);		//create dir if doesn't exit
 					strcat(localPathFile, filename);
 				}
 				else	//no local dir and no local path
@@ -279,7 +288,8 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 					delayed226 = 1;
 				else
 					errorQuit(controlSocket, responseCode, 226);
-
+				
+				int currentTransfer = 0;
 				//read data connection and write file
 				FILE* file = fopen(localPathFile, "w");
 				if(file!=NULL)
@@ -288,6 +298,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 					while (datasize > 0)
 					{
 						bytesIn += datasize;
+						currentTransfer += datasize;
 						fwrite(dataBlock, sizeof(char), datasize, file);
 						memset(&dataBlock[0], 0, sizeof(dataBlock));
 						datasize = read(dataSocket, dataBlock, MAXLINE);
@@ -307,6 +318,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 					responseCode = handleResponse(controlSocket, serverResponse);
 					errorQuit(controlSocket, responseCode, 226);
 				}
+				printf("%d bytes received\n", currentTransfer);
 			}
 		}
 		//help request
@@ -443,6 +455,7 @@ int main(int argc, char *argv[])
     if(argc == 4)
     {
         char* localDirectory = argv[3];
+		printf(" --localDirectory: %s\n", localDirectory);
         checkNumPaths++;
     }
     controlSession(connVal, checkNumPaths, serverDirectory, localDirectory);
