@@ -45,7 +45,6 @@ int dataConnSetup(char* pasvSetting)
     snprintf(addr, 16, "%s.%s.%s.%s", ip1, ip2, ip3, ip4);
     
     dataSocket = ((port1 * 256) + port2);
-    printf(" --Data connection: IP %s, Socket %i \n", addr, dataSocket);
     
     struct sockaddr_in pass;
     pass.sin_family        = AF_INET;
@@ -56,7 +55,7 @@ int dataConnSetup(char* pasvSetting)
     connectReturn = connect(dataConn, (struct sockaddr_in*)&pass, sizeof(pass));
     if (connectReturn != -1)
     {        
-        printf(" --Data connection. IP %s, Socket %i \n", addr, dataSocket);                  // Success
+        printf(" --Data connection made. IP %s, Socket %i \n", addr, dataSocket);        // Success
     }
     else
     {
@@ -119,12 +118,13 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
     char* TYPE = "TYPE I\r\n";
     char* CWD = "CWD ";
     char* NLST = "NLST ";
-    char* HELP = "HELP\r\n";
+	char* RETR = "RETR ";
+    char* HELP = "HELP ";
     char* QUIT = "QUIT\r\n";
     
     int responseCode;
     int dataSocket;
-    ssize_t bytesIn;
+    ssize_t bytesIn = 0;
 
     memset(&dataBlock[0], 0, sizeof(dataBlock));
 	
@@ -166,8 +166,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 	//get user input and handle requests
 	printf("sftp> ");
 	fgets(userinput, 500, stdin);
-	printf(" --user input received: %s", userinput);
-    while(strcmp(userinput, "quit\n") != 0)
+    while(strncmp(userinput, "quit", 4) != 0)
 	{
 		//directory listing request
 		if(strncmp(userinput, "ls", 2) == 0)
@@ -175,14 +174,14 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 			char* path = strtok(userinput, " ");
 			path = strtok(NULL, " ");
 			char* NLST_arg;
-			if (path != NULL)
+			if (path != NULL)	//ls with path
 			{
 				NLST_arg = malloc(strlen((NLST)) + strlen(path) + 2);
 				strcpy(NLST_arg, NLST);
 				strcat(NLST_arg, path);
 				strcat(NLST_arg, "\r\n");
 			}
-			else
+			else	//plain ls
 			{
 				NLST_arg = malloc(strlen((NLST)) + 2);
 				strcpy(NLST_arg, NLST);
@@ -209,22 +208,132 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 		//get request
 		else if (strncmp(userinput, "get", 3) == 0)
 		{
+			char* serverPathFile = strtok(userinput, " ");
+			serverPathFile = strtok(NULL, " ");
+			char* RETR_arg;
+			if (serverPathFile == NULL)	//no filename provided
+			{
+				printf(" --Usage: get [<directory>]/<filename> [<local directory>].\n");
+			}
+			else	//filename (and/or path given
+			{
+				//build request for sending to server
+				RETR_arg = malloc(strlen((RETR)) + strlen(serverPathFile) + 2);
+				strcpy(RETR_arg, RETR);
+				strcat(RETR_arg, serverPathFile);
+				strcat(RETR_arg, "\r\n");
+
+				//tok for local directory
+				char* localPath = strtok(NULL, " ");
+				localPath = strtok(localPath, "\n");
+				//tok serverPathFile to get filename
+				char* filename = serverPathFile;
+				while(strchr(filename, '/'))
+					filename = strchr(filename, '/') + 1;
+				filename = strtok(filename, "\n");
+				//combine cmd line local + input local + filename to open filelength
+				char* localPathFile;
+				if (numPaths >= 2 && localPath != NULL)	//local dir and path provided
+				{
+					localPathFile = malloc(strlen(localDir) + strlen(localPath) + strlen(filename));
+					strcpy(localPathFile, localDir);
+					strcat(localPathFile, localPath);
+					strcat(localPathFile, filename);
+				}
+				else if (numPaths >= 2)	//local dir only
+				{
+					localPathFile = malloc(strlen(localDir) + strlen(filename));
+					strcpy(localPathFile, localDir);
+					strcat(localPathFile, filename);
+				}
+				else if (localPath != NULL)	//local path only
+				{
+					localPathFile = malloc(strlen(localPath) + strlen(filename)+1);
+					strcpy(localPathFile, localPath);
+					strcat(localPathFile, filename);
+					strcat(localPathFile, "\0");
+				}
+				else	//no local dir and no local path
+				{
+					localPathFile = malloc(strlen(filename));
+					strcpy(localPathFile, filename);
+				}
+				printf(" --Save File Location: %s\n", localPathFile);
+				//open Image data connection
+				//send PASV
+				write(controlSocket, PASV, strlen(PASV));
+				responseCode = handleResponse(controlSocket, serverResponse);
+				errorQuit(controlSocket, responseCode, 227);
+				//PASV success: setup data connetion, send RETR
+				dataSocket = dataConnSetup(serverResponse);
+				printf(" --sending: %s", TYPE);
+				write(controlSocket, TYPE, strlen(TYPE));
+				responseCode = handleResponse(controlSocket, serverResponse);
+				errorQuit(controlSocket, responseCode, 200);
+				printf(" --sending: %s", RETR_arg);
+				write(controlSocket, RETR_arg, strlen(RETR_arg));
+				responseCode = handleResponse(controlSocket, serverResponse);
+				errorQuit(controlSocket, responseCode, 226);
+				
+				//read data connection and write file
+				FILE* file = fopen(localPathFile, "w");
+				if(file!=NULL)
+				{
+					int datasize = read(dataSocket, dataBlock, MAXLINE);
+					while (datasize > 0)
+					{
+						bytesIn += datasize;
+						fwrite(dataBlock, sizeof(char), datasize, file);
+						memset(&dataBlock[0], 0, sizeof(dataBlock));
+						datasize = read(dataSocket, dataBlock, MAXLINE);
+					}
+					memset(&dataBlock[0], 0, sizeof(dataBlock));
+				}
+				else
+				{
+					printf("ERROR: unable to create local file.\n");
+					write(controlSocket, QUIT, strlen(QUIT));
+					exit(EXIT_FAILURE);
+				}
+				fclose(file);
+			}
 		}
-		//help
+		//help request
 		else if (strncmp(userinput, "help", 4) == 0)
 		{
-			write(controlSocket, HELP, strlen(HELP));
+			char* topic = strtok(userinput, " ");
+			topic = strtok(NULL, " ");
+			char* HELP_arg;
+			if (topic != NULL)	//help on specific FTP request
+			{
+				HELP_arg = malloc(strlen((HELP)) + strlen(topic) + 2);
+				strcpy(HELP_arg, HELP);
+				strcat(HELP_arg, topic);
+				strcat(HELP_arg, "\r\n");
+			}
+			else	//general help
+			{
+				HELP_arg = malloc(strlen((HELP)) + 2);
+				strcpy(HELP_arg, HELP);
+				strcat(HELP_arg, "\r\n");
+			}
+			printf(" --sending: %s", HELP_arg);
+			write(controlSocket, HELP_arg, strlen(HELP_arg));
 			responseCode = handleResponse(controlSocket, serverResponse);
+			errorQuit(controlSocket, responseCode, 214);
 		}
+		else
+			printf(" --user input not recognized.\n");
+		
 		printf("sftp> ");
 		fgets(userinput, 500, stdin);
-		printf(" --user input received: %s", userinput);
     }
 	
 	//user is quiting
     write(controlSocket, QUIT, strlen(QUIT));
  	responseCode = handleResponse(controlSocket, serverResponse);
 	errorQuit(controlSocket, responseCode, 221);
+	printf("OK: %d bytes copied.\n\n", bytesIn);
 		
 	return 0;
 }
