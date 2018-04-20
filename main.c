@@ -214,9 +214,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             serverPathFile = strtok(NULL, " ");
             char* RETR_arg;
             if (serverPathFile == NULL)    //no filename provided
-            {
                 printf(" --Usage: get [<directory>]/<filename> [<local directory>]/\n");
-            }
             else    //filename (and/or path given
             {
                 //build request for sending to server
@@ -348,13 +346,18 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             newDir = strtok(NULL, " ");
             newDir = strtok(newDir, "\n");
             char* CWD_arg;
-            CWD_arg = malloc(strlen((CWD)) + strlen(newDir) + 2);
-            strcpy(CWD_arg, CWD);
-            strcat(CWD_arg, newDir);
-            strcat(CWD_arg, "\r\n");
-            write(controlSocket, CWD_arg, strlen(CWD_arg));
-            responseCode = handleResponse(controlSocket, serverResponse);
-            errorQuit(controlSocket, responseCode, 250);
+			if(newDir == NULL)
+				printf(" --Usage: cwd [<directory>]\n");
+			else
+			{
+				CWD_arg = malloc(strlen((CWD)) + strlen(newDir) + 2);
+				strcpy(CWD_arg, CWD);
+				strcat(CWD_arg, newDir);
+				strcat(CWD_arg, "\r\n");
+				write(controlSocket, CWD_arg, strlen(CWD_arg));
+				responseCode = handleResponse(controlSocket, serverResponse);
+				errorQuit(controlSocket, responseCode, 250);
+			}
         }
         else
             printf(" --user input not recognized.\n");
