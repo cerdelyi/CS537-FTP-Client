@@ -241,38 +241,48 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 while(strchr(filename, '/'))
                     filename = strchr(filename, '/') + 1;
                 filename = strtok(filename, "\n");
-                //combine cmd line local + input local + filename for fopen()
-                char* localPathFile;
-                if (numPaths >= 2 && localPath != NULL)    //cmd line local & input local provided
-                {
-                    localPathFile = malloc(2 + strlen(localDir) + strlen(localPath) + strlen(filename));
-                    strcpy(localPathFile, "./");
-                    strcat(localPathFile, localDir);
-                    strcat(localPathFile, localPath);
-                    mkdir(localPathFile, 0777);        //create dir if doesn't exit
-                    strcat(localPathFile, filename);
-                }
-                else if (numPaths >= 2)    //cmd line local only
-                {
-                    localPathFile = malloc(2 + strlen(localDir) + strlen(filename));
-                    strcpy(localPathFile, "./");
-                    strcat(localPathFile, localDir);
-                    mkdir(localPathFile, 0777);        //create dir if doesn't exit
-                    strcat(localPathFile, filename);
-                }
-                else if (localPath != NULL)    //input local only
-                {
-                    localPathFile = malloc(2 + strlen(localPath) + strlen(filename));
-                    strcpy(localPathFile, "./");
-                    strcat(localPathFile, localPath);
-                    mkdir(localPathFile, 0777);        //create dir if doesn't exit
-                    strcat(localPathFile, filename);
-                }
-                else    //no cmd line local and no input local
-                {
-                    localPathFile = malloc(strlen(filename));
-                    strcpy(localPathFile, filename);
-                }
+				//build path (if necessary)
+				char* localPathFile;
+				if (numPaths >= 2 || localPath != NULL)
+				{
+					//combine cmd line given directory + inputted path + filename
+					char* fullPath;
+					if (numPaths >= 2 && localPath != NULL)    //cmd line & input provided
+					{
+						fullPath = malloc(1 + strlen(localDir) + strlen(localPath));
+						strcpy(fullPath, localDir);
+						strcat(fullPath, "/");
+						strcat(fullPath, localPath);
+					}
+					else if (numPaths >= 2)    //cmd line only
+					{
+						fullPath = malloc(strlen(localDir));
+						strcpy(fullPath, localDir);
+					}
+					else if (localPath != NULL)    //input only
+					{
+						fullPath = malloc(strlen(localPath));
+						strcpy(fullPath, localPath);
+					}
+					//create directories (rebuild path folder by folder)
+					localPathFile = malloc(strlen(fullPath) + strlen(filename) + 3);
+					strcpy(localPathFile, "./");
+					char* folder = strtok(fullPath, "/");
+					while(folder)
+					{
+						strcat(localPathFile, folder);
+						strcat(localPathFile, "/");
+						mkdir(localPathFile, 0777);
+						folder = strtok(NULL, "/");
+					}
+					//add filename to path for fopen() parameter				
+					strcat(localPathFile, filename);
+				}
+				else	//no path, use current dir -> just filename
+				{
+					localPathFile = malloc(strlen(filename));
+					strcpy(localPathFile, filename);
+				}
                 
                 //setup binary data connection
                 //send PASV
