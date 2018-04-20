@@ -81,11 +81,12 @@ int handleResponse(int cSock, char* servResp)
     sleep(1);
     read(cSock, servResp, MAXLINE);
     servResp[strlen(servResp)+1] = '\0';
-    copy = (char*) malloc(strlen(servResp));
+    copy = (char*) malloc(strlen(servResp));	//copy for tokenizing
     strcpy(copy, servResp);
     responseLine = strtok(copy, "\r\n");
     while(responseLine != NULL)
     {
+		//print line, get response code
         printf("%s\n", responseLine);
         respNum = atoi(responseLine);
         if(respNum >= 400)
@@ -108,8 +109,8 @@ void errorQuit(int cSock, int rCode, int expected)
     }
 }
 
-//sets up anonymous login
-//loops through allowing user requests and appropriate ftp actions
+//sets up anonymous login first
+//loops getting user input and completing actions to accomplish requests
 int controlSession(int controlSocket, int numPaths, char* serverDir, char* localDir)
 {
     char serverResponse[MAXLINE+1], dataBlock[MAXLINE+1];
@@ -194,7 +195,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             write(controlSocket, PASV, strlen(PASV));
             responseCode = handleResponse(controlSocket, serverResponse);
             errorQuit(controlSocket, responseCode, 227);
-            //PASV success: setup data connetion, send NLST
+            //PASV success-> setup data connetion, send NLST
             dataSocket = dataConnSetup(serverResponse);
             write(controlSocket, NLST_arg, strlen(NLST_arg));
             responseCode = handleResponse(controlSocket, serverResponse);
@@ -215,7 +216,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             char* RETR_arg;
             if (serverPathFile == NULL)    //no filename provided
                 printf(" --Usage: get [<directory>]/<filename> [<local directory>]/\n");
-            else    //filename (and/or path given
+            else    //filename (and/or path given)
             {
                 //build request for sending to server
                 RETR_arg = malloc(strlen((RETR)) + strlen(serverPathFile) + 2);
@@ -223,17 +224,17 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 strcat(RETR_arg, serverPathFile);
                 strcat(RETR_arg, "\r\n");
                 
-                //tok for local directory
+                //tok to save local directory
                 char* localPath = strtok(NULL, " ");
                 localPath = strtok(localPath, "\n");
-                //tok serverPathFile to get filename
+                //parse serverPathFile to just get filename
                 char* filename = serverPathFile;
                 while(strchr(filename, '/'))
                     filename = strchr(filename, '/') + 1;
                 filename = strtok(filename, "\n");
-                //combine cmd line local + input local + filename to open filelength
+                //combine cmd line local + input local + filename for fopen()
                 char* localPathFile;
-                if (numPaths >= 2 && localPath != NULL)    //local dir and path provided
+                if (numPaths >= 2 && localPath != NULL)    //cmd line local & input local provided
                 {
                     localPathFile = malloc(2 + strlen(localDir) + strlen(localPath) + strlen(filename));
                     strcpy(localPathFile, "./");
@@ -242,7 +243,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                     mkdir(localPathFile, 0777);        //create dir if doesn't exit
                     strcat(localPathFile, filename);
                 }
-                else if (numPaths >= 2)    //local dir only
+                else if (numPaths >= 2)    //cmd line local only
                 {
                     localPathFile = malloc(2 + strlen(localDir) + strlen(filename));
                     strcpy(localPathFile, "./");
@@ -250,7 +251,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                     mkdir(localPathFile, 0777);        //create dir if doesn't exit
                     strcat(localPathFile, filename);
                 }
-                else if (localPath != NULL)    //local path only
+                else if (localPath != NULL)    //input local only
                 {
                     localPathFile = malloc(2 + strlen(localPath) + strlen(filename));
                     strcpy(localPathFile, "./");
@@ -258,18 +259,18 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                     mkdir(localPathFile, 0777);        //create dir if doesn't exit
                     strcat(localPathFile, filename);
                 }
-                else    //no local dir and no local path
+                else    //no cmd line local and no input local
                 {
                     localPathFile = malloc(strlen(filename));
                     strcpy(localPathFile, filename);
                 }
 				
-                //open Image data connection
+                //setup binary data connection
                 //send PASV
                 write(controlSocket, PASV, strlen(PASV));
                 responseCode = handleResponse(controlSocket, serverResponse);
                 errorQuit(controlSocket, responseCode, 227);
-                //PASV success: setup data connetion in binary, send RETR
+                //PASV success: setup data connetion in binary, send RETR request
                 dataSocket = dataConnSetup(serverResponse);
                 write(controlSocket, TYPE, strlen(TYPE));
                 responseCode = handleResponse(controlSocket, serverResponse);
@@ -277,6 +278,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 write(controlSocket, RETR_arg, strlen(RETR_arg));
                 responseCode = handleResponse(controlSocket, serverResponse);
                 
+				//check response code (large file might only send 150, smaller might have 150+226 together)
                 int delayed226 = 0;
                 if (responseCode == 150)
                     delayed226 = 1;
@@ -291,13 +293,13 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                     int datasize = read(dataSocket, dataBlock, MAXLINE);
                     while (datasize > 0)
                     {
-                        bytesIn += datasize;
-                        currentTransfer += datasize;
+                        bytesIn += datasize;	//track total bytes
+                        currentTransfer += datasize;	//track bytes for this file
                         fwrite(dataBlock, sizeof(char), datasize, file);
                         memset(&dataBlock[0], 0, sizeof(dataBlock));
                         datasize = read(dataSocket, dataBlock, MAXLINE);
                     }
-                    memset(&dataBlock[0], 0, sizeof(dataBlock));
+                    memset(&dataBlock[0], 0, sizeof(dataBlock));	//make sure dataBlock is cleared
                 }
                 else
                 {
@@ -307,6 +309,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 }
                 fclose(file);
                 
+				//for if only 150 was sent initially (see above)
                 if (delayed226)
                 {
                     responseCode = handleResponse(controlSocket, serverResponse);
@@ -346,10 +349,11 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             newDir = strtok(NULL, " ");
             newDir = strtok(newDir, "\n");
             char* CWD_arg;
-			if(newDir == NULL)
+			if(newDir == NULL)	// no directory provided
 				printf(" --Usage: cwd [<directory>]\n");
 			else
 			{
+				//build and send CWD request
 				CWD_arg = malloc(strlen((CWD)) + strlen(newDir) + 2);
 				strcpy(CWD_arg, CWD);
 				strcat(CWD_arg, newDir);
@@ -362,6 +366,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
         else
             printf(" --user input not recognized.\n");
         
+		//get new input before looping
         printf("sftp> ");
         fgets(userinput, 500, stdin);
     }
