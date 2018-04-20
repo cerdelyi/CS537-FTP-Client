@@ -54,7 +54,7 @@ int dataConnSetup(char* pasvSetting)
     pass.sin_port          = htons(dataSocket);
     
     dataConn = socket(pass.sin_family, SOCK_STREAM, 0);
-    connectReturn = connect(dataConn, (struct sockaddr_in*)&pass, sizeof(pass));
+    connectReturn = connect(dataConn, (struct sockaddr *)&pass, sizeof(pass));
     if (connectReturn != -1)
     {
         printf(" --Data connection made. IP %s, Socket %i \n", addr, dataSocket);        // Success
