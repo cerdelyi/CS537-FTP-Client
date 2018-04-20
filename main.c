@@ -25,13 +25,16 @@
 
 #define MAXLINE 2000
 
-const int backlog = 4;
-
+/* Creates data connection with FTP server after initial control
+   connection has been established. Data connections are opened and closed
+   for each command sent (for example, RETR or NLST).
+   This function works in conjunction with the PASV command sent by the client. */
 int dataConnSetup(char* pasvSetting)
 {
     int dataSocket, dataConn, gethost, connectReturn, port1, port2;
     char *token, *ip1, *ip2, *ip3, *ip4, *p1, *p2, *dataPortString, addr[16];
     
+    // ftp.gnu.org and ftp.ucsd.edu return string containing IP in parenthesis
     token = strtok(pasvSetting, "(");
     
     ip1 = strtok(NULL, ",");
@@ -46,8 +49,11 @@ int dataConnSetup(char* pasvSetting)
     
     snprintf(addr, 16, "%s.%s.%s.%s", ip1, ip2, ip3, ip4);
     
+    // Socket number must be calculated as follows below
     dataSocket = ((port1 * 256) + port2);
     
+    // set up IPv4 socket to initiate new connection for data transfer,
+    // using port specified by server in response to PASV request.
     struct sockaddr_in pass;
     pass.sin_family        = AF_INET;
     pass.sin_addr.s_addr   = inet_addr(addr);
@@ -65,6 +71,7 @@ int dataConnSetup(char* pasvSetting)
                 errno, strerror(errno));
     }
     
+    // return the handle of the socket
     return dataConn;
 }
 
@@ -81,12 +88,12 @@ int handleResponse(int cSock, char* servResp)
     sleep(1);
     read(cSock, servResp, MAXLINE);
     servResp[strlen(servResp)+1] = '\0';
-    copy = (char*) malloc(strlen(servResp));	//copy for tokenizing
+    copy = (char*) malloc(strlen(servResp));    //copy for tokenizing
     strcpy(copy, servResp);
     responseLine = strtok(copy, "\r\n");
     while(responseLine != NULL)
     {
-		//print line, get response code
+        //print line, get response code
         printf("%s\n", responseLine);
         respNum = atoi(responseLine);
         if(respNum >= 400)
@@ -162,6 +169,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
         write(controlSocket, CWD_arg, strlen(CWD_arg));
         
         responseCode = handleResponse(controlSocket, serverResponse);
+        free(CWD_arg);
         errorQuit(controlSocket, responseCode, 250);
     }
     
@@ -207,6 +215,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 printf("%s", dataBlock);
                 memset(&dataBlock[0], 0, sizeof(dataBlock));
             }
+            close(dataSocket);
         }
         //get request
         else if (strncmp(userinput, "get", 3) == 0)
@@ -264,7 +273,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                     localPathFile = malloc(strlen(filename));
                     strcpy(localPathFile, filename);
                 }
-				
+                
                 //setup binary data connection
                 //send PASV
                 write(controlSocket, PASV, strlen(PASV));
@@ -278,7 +287,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 write(controlSocket, RETR_arg, strlen(RETR_arg));
                 responseCode = handleResponse(controlSocket, serverResponse);
                 
-				//check response code (large file might only send 150, smaller might have 150+226 together)
+                //check response code (large file might only send 150, smaller might have 150+226 together)
                 int delayed226 = 0;
                 if (responseCode == 150)
                     delayed226 = 1;
@@ -293,13 +302,13 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                     int datasize = read(dataSocket, dataBlock, MAXLINE);
                     while (datasize > 0)
                     {
-                        bytesIn += datasize;	//track total bytes
-                        currentTransfer += datasize;	//track bytes for this file
+                        bytesIn += datasize;    //track total bytes
+                        currentTransfer += datasize;    //track bytes for this file
                         fwrite(dataBlock, sizeof(char), datasize, file);
                         memset(&dataBlock[0], 0, sizeof(dataBlock));
                         datasize = read(dataSocket, dataBlock, MAXLINE);
                     }
-                    memset(&dataBlock[0], 0, sizeof(dataBlock));	//make sure dataBlock is cleared
+                    memset(&dataBlock[0], 0, sizeof(dataBlock));    //make sure dataBlock is cleared
                 }
                 else
                 {
@@ -309,12 +318,13 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
                 }
                 fclose(file);
                 
-				//for if only 150 was sent initially (see above)
+                //for if only 150 was sent initially (see above)
                 if (delayed226)
                 {
                     responseCode = handleResponse(controlSocket, serverResponse);
                     errorQuit(controlSocket, responseCode, 226);
                 }
+                close(dataSocket);
                 printf(" --%d bytes received at %s\n", currentTransfer, localPathFile);
             }
         }
@@ -340,6 +350,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             }
             write(controlSocket, HELP_arg, strlen(HELP_arg));
             responseCode = handleResponse(controlSocket, serverResponse);
+            free(HELP_arg);
             errorQuit(controlSocket, responseCode, 214);
         }
         //CWD request
@@ -349,24 +360,24 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
             newDir = strtok(NULL, " ");
             newDir = strtok(newDir, "\n");
             char* CWD_arg;
-			if(newDir == NULL)	// no directory provided
-				printf(" --Usage: cwd [<directory>]\n");
-			else
-			{
-				//build and send CWD request
-				CWD_arg = malloc(strlen((CWD)) + strlen(newDir) + 2);
-				strcpy(CWD_arg, CWD);
-				strcat(CWD_arg, newDir);
-				strcat(CWD_arg, "\r\n");
-				write(controlSocket, CWD_arg, strlen(CWD_arg));
-				responseCode = handleResponse(controlSocket, serverResponse);
-				errorQuit(controlSocket, responseCode, 250);
-			}
+            if(newDir == NULL)    // no directory provided
+                printf(" --Usage: cwd [<directory>]\n");
+            else
+            {
+                //build and send CWD request
+                CWD_arg = malloc(strlen((CWD)) + strlen(newDir) + 2);
+                strcpy(CWD_arg, CWD);
+                strcat(CWD_arg, newDir);
+                strcat(CWD_arg, "\r\n");
+                write(controlSocket, CWD_arg, strlen(CWD_arg));
+                responseCode = handleResponse(controlSocket, serverResponse);
+                errorQuit(controlSocket, responseCode, 250);
+            }
         }
         else
             printf(" --user input not recognized.\n");
         
-		//get new input before looping
+        //get new input before looping
         printf("sftp> ");
         fgets(userinput, 500, stdin);
     }
@@ -375,6 +386,7 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
     write(controlSocket, QUIT, strlen(QUIT));
     responseCode = handleResponse(controlSocket, serverResponse);
     errorQuit(controlSocket, responseCode, 221);
+    close(controlSocket);
     printf("OK: %d bytes copied.\n\n", bytesIn);
     
     return 0;
@@ -387,13 +399,23 @@ int controlSession(int controlSocket, int numPaths, char* serverDir, char* local
 int main(int argc, char *argv[])
 {
     int    gethost, connVal, connectReturn;
+    /*
+      The addrinfo struct holds the result of the query to a URL, which contains the IP address.
+       getaddrinfo returns a linked list of these possible addresses. The list must be iterated through to
+       find a connection that works.
+    */
     struct addrinfo *result = malloc(sizeof(*result)), *resultIter = malloc(sizeof(*resultIter)), hints;
     
     bzero(&result, sizeof(result));
-    // bzero(&passThru, sizeof(passThru));
-    
+   
+    /*
+     The hints addrinfo struct passes parameters to set up how getaddrinfo should behave.
+     ai_family sets whether to allow IPv4, IPv6, or both;
+     ai_socktype should be SOCK_STREAM for TCP connections;
+     ai_flags are useful for debugging the connection.
+     */
     memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_INET;    /* Allow IPv4 & IPv6 for test */
+    hints.ai_family = AF_INET;    /* Allow IPv4 only */
     hints.ai_socktype = SOCK_STREAM; /* Stream socket */
     hints.ai_flags = AI_CANONNAME | AI_ADDRCONFIG | AI_PASSIVE;
     hints.ai_protocol = 0;          /* Any protocol */
@@ -424,17 +446,21 @@ int main(int argc, char *argv[])
         }
         
     }
-    
+    /*
+      Getaddrinfo provides linked list of possible IP addresses associated with a URL.
+      Use a For loop to iterate over the list, stopping at the first address encountered
+      that successfully connects.
+     */
     for (resultIter = result; resultIter != NULL; resultIter = resultIter->ai_next)
     {
         connVal = socket(resultIter->ai_family, resultIter->ai_socktype, resultIter->ai_protocol);
         
-        if(resultIter != NULL)
+        if(resultIter != NULL)      //Additional structs to check for connection in linked list.
         {
             //printf(" --Result is not null \n");
             //printf(" --ConnVal: %i \n", connVal);
         }
-        if (connVal == -1)
+        if (connVal == -1)          //no connection. Try next addrinfo struct in linked list.
         {
             continue;
         }
@@ -452,6 +478,7 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Error connection request refused, errno = %d (%s) \n",
                     errno, strerror(errno));
         }
+        // close the attempted connection that did not work, and try next struct if not NULL.
         close(connVal);
     }
     
@@ -460,16 +487,21 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
     
+    //Free memory; we no longer need the info in struct result.
     freeaddrinfo(result);
     //printf(" --Connect call performed \n");
     
     int checkNumPaths = 0;
     char* serverDirectory, *localDirectory;
+    
+    //Assumption: last argument typed will always be server pathname.
     if(argc >=3)
     {
         serverDirectory = argv[2];
         checkNumPaths++;
     }
+    //Assumption: 4th argument will always be local directory the user
+    //wants to download files into. 
     if(argc == 4)
     {
         localDirectory = argv[3];
@@ -481,4 +513,3 @@ int main(int argc, char *argv[])
     
     return 0;
 }
-
